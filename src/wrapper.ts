@@ -1,5 +1,4 @@
-import { concat, Observable, Subject, throwError } from 'rxjs';
-import { Agent } from 'https';
+import { from, Observable, Subject, throwError } from 'rxjs';
 import {
   Data,
   Downloader,
@@ -8,11 +7,10 @@ import {
   Status,
   Writer,
 } from './interfaces/interfaces';
-import { concatMap, switchMap } from 'rxjs/operators';
+import { mergeMap, switchMap } from 'rxjs/operators';
 
 export class Wrapper {
   private readonly outPath: string;
-  private readonly agent: Agent;
   private data: Data;
   private parser: Parser;
   private downloader: Downloader;
@@ -20,7 +18,6 @@ export class Wrapper {
 
   constructor(outPath: string, injector: Injector) {
     this.outPath = outPath;
-    this.agent = new Agent({ keepAlive: true });
 
     this.data = new Data();
     this.parser = injector.get('Parser');
@@ -30,6 +27,7 @@ export class Wrapper {
 
   save(target: string): Observable<Status> {
     const notify = new Subject<Status>();
+    let downloadedCount = 0;
 
     const url = new URL(target);
     this.downloader.url = url;
@@ -49,41 +47,37 @@ export class Wrapper {
             return throwError('error');
           }
 
+          const partsSet = new Set<string>();
           const key = manifest.segments[0].key;
           if (key) {
-            this.data.parts.set(key.uri, false);
+            partsSet.add(key.uri);
           }
           for (const segment of manifest.segments) {
-            this.data.parts.set(segment.uri, false);
+            partsSet.add(segment.uri);
           }
+          this.data.parts = Array.from(partsSet);
 
-          const status: Status = {
-            total: this.data.parts.size,
-            downloaded: Array.from(this.data.parts.values()).filter((d) => d)
-              .length,
-          };
-          notify.next(status);
-          return concat(
-            ...Array.from(this.data.parts.keys()).map((part) =>
-              this.downloader.download(part)
-            )
+          notify.next({ total: this.data.parts.length, downloaded: 0 });
+          return from(this.data.parts).pipe(
+            mergeMap((part) => this.downloader.download(part), 5)
           );
         }),
-        concatMap((result) => {
+        mergeMap((result) => {
           const fileName =
             result.name.match(/(.*(\.ts|\.m3u8))(\??.*)/)?.[0] || '';
           const filePath = this.outPath + '/' + fileName;
-          this.data.parts.set(fileName, true);
-          const status: Status = {
-            total: this.data.parts.size,
-            downloaded: Array.from(this.data.parts.values()).filter((d) => d)
-              .length,
-          };
-          notify.next(status);
+          downloadedCount++;
+          notify.next({
+            total: this.data.parts.length,
+            downloaded: downloadedCount,
+          });
           return this.writer.writeFile(filePath, result.data);
         })
       )
-      .subscribe();
+      .subscribe({
+        error: (err) => notify.error(err),
+        complete: () => notify.complete(),
+      });
 
     return notify.asObservable();
   }

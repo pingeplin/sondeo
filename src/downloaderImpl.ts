@@ -40,7 +40,7 @@ export class DownloaderImpl implements Downloader {
             const dv = new DataView(
               buffer.buffer,
               buffer.byteOffset,
-              contentLength
+              buffer.length
             );
             sub.next({
               name: target,
