@@ -2,10 +2,10 @@ import { MediaGroups, Playlist, Segment } from 'm3u8-parser';
 import { Observable } from 'rxjs';
 
 export class Data {
-  parts: Map<string, boolean>;
+  parts: string[];
 
   constructor() {
-    this.parts = new Map<string, boolean>();
+    this.parts = [];
   }
 }
 

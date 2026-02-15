@@ -6,3 +6,7 @@ package-lock.json
 yarn.lock
 temp
 .idea
+output
+dist
+bin
+.DS_Store
