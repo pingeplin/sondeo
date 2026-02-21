@@ -14,22 +14,45 @@ export class DownloaderImpl implements Downloader {
       }
 
       const host = this.url.host;
-      const pathList = [
-        ...this.url.pathname
-          .split('/')
-          .filter((e) => e)
-          .slice(0, -1),
-        target,
-      ];
-      const path = '/' + pathList.join('/') + this.url.search;
+      const basePath = this.url.pathname
+        .split('/')
+        .filter((e) => e)
+        .slice(0, -1);
+
+      // Separate target path from its query string
+      const [targetPath, ...queryParts] = target.split('?');
+      const targetSegments = targetPath.split('/').filter((e) => e);
+
+      // Encode each path segment safely (decode first to avoid double-encoding)
+      const allSegments = [...basePath, ...targetSegments];
+      const encodedPath =
+        '/' +
+        allSegments
+          .map((seg) => {
+            try {
+              return encodeURIComponent(decodeURIComponent(seg));
+            } catch {
+              return encodeURIComponent(seg);
+            }
+          })
+          .join('/');
+
+      const search =
+        queryParts.length > 0 ? '?' + queryParts.join('?') : this.url.search;
+
       const option: RequestOptions = {
         host,
-        path,
+        path: encodedPath + search,
         agent: this.agent,
       };
 
-      https.get(option, (res) => {
-        const contentLength = +(res.headers['content-length'] || 0);
+      const req = https.get(option, (res) => {
+        if (res.statusCode && res.statusCode >= 400) {
+          sub.error(new Error(`HTTP ${res.statusCode} for ${target}`));
+          res.resume();
+          return;
+        }
+
         const data: Buffer[] = [];
         res
           .on('data', (chunk: any) => {
@@ -50,6 +73,7 @@ export class DownloaderImpl implements Downloader {
             sub.complete();
           });
       });
+      req.on('error', (err) => sub.error(err));
     });
   }
 }

@@ -36,11 +36,15 @@ export class Wrapper {
       .download(fileName)
       .pipe(
         switchMap((result) => {
-          const manifest = this.parser.parse(Buffer.from(result.data.buffer));
+          const manifest = this.parser.parse(
+            Buffer.from(
+              result.data.buffer,
+              result.data.byteOffset,
+              result.data.byteLength
+            )
+          );
 
-          const fileName = result.name.match(
-            /(.*(\.ts|\.m3u8|\.jpeg))(\??.*)/
-          )?.[0];
+          const fileName = result.name.split('?')[0];
           const filePath = this.outPath + '/' + fileName;
 
           this.writer.writeFile(filePath, result.data);
@@ -65,8 +69,7 @@ export class Wrapper {
           );
         }),
         mergeMap((result) => {
-          const fileName =
-            result.name.match(/(.*(\.ts|\.m3u8|\.jpeg))(\??.*)/)?.[0] || '';
+          const fileName = result.name.split('?')[0];
           const filePath = this.outPath + '/' + fileName;
           downloadedCount++;
           notify.next({
