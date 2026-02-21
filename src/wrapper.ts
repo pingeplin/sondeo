@@ -9,6 +9,8 @@ import {
 } from './interfaces/interfaces';
 import { mergeMap, switchMap } from 'rxjs/operators';
 
+const IMAGE_EXT_RE = /\.(jpe?g|png|gif|bmp|webp)/g;
+
 export class Wrapper {
   private readonly outPath: string;
   private data: Data;
@@ -47,7 +49,20 @@ export class Wrapper {
           const fileName = result.name.split('?')[0];
           const filePath = this.outPath + '/' + fileName;
 
-          this.writer.writeFile(filePath, result.data);
+          const m3u8Str = Buffer.from(
+            result.data.buffer,
+            result.data.byteOffset,
+            result.data.byteLength
+          ).toString();
+          const rewritten = Buffer.from(m3u8Str.replace(IMAGE_EXT_RE, '.ts'));
+          this.writer.writeFile(
+            filePath,
+            new DataView(
+              rewritten.buffer,
+              rewritten.byteOffset,
+              rewritten.byteLength
+            )
+          );
 
           if (!manifest.segments || manifest.segments.length === 0) {
             return throwError('error');
@@ -69,7 +84,9 @@ export class Wrapper {
           );
         }),
         mergeMap((result) => {
-          const fileName = result.name.split('?')[0];
+          const fileName = result.name
+            .split('?')[0]
+            .replace(IMAGE_EXT_RE, '.ts');
           const filePath = this.outPath + '/' + fileName;
           downloadedCount++;
           notify.next({
