@@ -4,6 +4,9 @@ import { Observable } from 'rxjs';
 
 export class DownloaderImpl implements Downloader {
   url: URL | undefined;
+  // Extra request headers (e.g. User-Agent, Referer) sent on every request.
+  // Some CDNs 403 requests that lack a browser User-Agent or a site Referer.
+  headers: Record<string, string> = {};
   private agent = new Agent({ keepAlive: true });
 
   download(target: string): Observable<Result> {
@@ -48,6 +51,7 @@ export class DownloaderImpl implements Downloader {
         port,
         path: encodedPath + search,
         agent: this.agent,
+        headers: this.headers,
       };
 
       const req = https.get(option, (res) => {

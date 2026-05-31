@@ -75,4 +75,28 @@ describe('DownloaderImpl over a non-default port', () => {
 
     expect(body).toBe('served:/dir/seg0.ts');
   });
+
+  // CDNs like surrit.com 403 requests without a browser User-Agent / site
+  // Referer; `headers` must be forwarded on every request so they pass.
+  it('forwards custom request headers to the server', async () => {
+    const seen: Record<string, string | string[] | undefined> = {};
+    server.removeAllListeners('request');
+    server.on('request', (req, res) => {
+      seen.referer = req.headers['referer'];
+      seen['user-agent'] = req.headers['user-agent'];
+      res.end('ok');
+    });
+
+    const dl = new DownloaderImpl();
+    dl.url = new URL(`https://127.0.0.1:${port}/dir/index.m3u8`);
+    dl.headers = {
+      Referer: 'https://missav.ai/dm26/maan-647',
+      'User-Agent': 'Mozilla/5.0 sondeo-test',
+    };
+
+    await first(dl.download('seg0.ts'));
+
+    expect(seen.referer).toBe('https://missav.ai/dm26/maan-647');
+    expect(seen['user-agent']).toBe('Mozilla/5.0 sondeo-test');
+  });
 });

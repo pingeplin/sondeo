@@ -13,6 +13,7 @@ export interface Result {
 
 export interface Downloader {
   url: URL | undefined;
+  headers?: Record<string, string>;
   download(target: string): Observable<Result>;
 }
 
