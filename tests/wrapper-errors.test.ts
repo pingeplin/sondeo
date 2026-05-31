@@ -59,7 +59,12 @@ describe('Wrapper — runtime error handling', () => {
     const outDir = mkdtempSync(join(tmpdir(), 'sondeo-out-'));
 
     await expect(
-      run(new Wrapper(outDir, injector({ downloader: fakeDl, merger: fakeMerger })).save('https://x/empty.m3u8'))
+      run(
+        new Wrapper(
+          outDir,
+          injector({ downloader: fakeDl, merger: fakeMerger })
+        ).save('https://x/empty.m3u8')
+      )
     ).rejects.toThrow(/no segments/i);
 
     expect(fakeMerger.mergeCalls).toBe(0);
@@ -82,8 +87,13 @@ describe('Wrapper — runtime error handling', () => {
     const outDir = mkdtempSync(join(tmpdir(), 'sondeo-out-'));
 
     await expect(
-      run(new Wrapper(outDir, injector({ downloader: fakeDl, merger: fakeMerger })).save('https://x/encrypted-explicit.m3u8'))
-    ).rejects.toThrow();
+      run(
+        new Wrapper(
+          outDir,
+          injector({ downloader: fakeDl, merger: fakeMerger })
+        ).save('https://x/encrypted-explicit.m3u8')
+      )
+    ).rejects.toThrow(/enc\.key/);
 
     // key was attempted; no media segment was ever requested
     expect(fakeDl.calls).toContain('enc.key');
@@ -93,9 +103,7 @@ describe('Wrapper — runtime error handling', () => {
   });
 
   it('aborts the run and skips merge when a segment download fails (S14)', async () => {
-    const body = ['s0', 's1', 's2']
-      .map((u) => `#EXTINF:1.0,\n${u}`)
-      .join('\n');
+    const body = ['s0', 's1', 's2'].map((u) => `#EXTINF:1.0,\n${u}`).join('\n');
     const playlist = Buffer.from(
       `#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n${body}\n#EXT-X-ENDLIST\n`
     );
@@ -109,8 +117,13 @@ describe('Wrapper — runtime error handling', () => {
     const outDir = mkdtempSync(join(tmpdir(), 'sondeo-out-'));
 
     await expect(
-      run(new Wrapper(outDir, injector({ downloader: fakeDl, merger: fakeMerger })).save('https://x/seg-fail.m3u8'))
-    ).rejects.toThrow();
+      run(
+        new Wrapper(
+          outDir,
+          injector({ downloader: fakeDl, merger: fakeMerger })
+        ).save('https://x/seg-fail.m3u8')
+      )
+    ).rejects.toThrow(/no entry for s1/);
 
     expect(fakeMerger.mergeCalls).toBe(0);
     rmSync(outDir, { recursive: true, force: true });

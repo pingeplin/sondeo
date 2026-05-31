@@ -25,7 +25,10 @@ function playlist(uris: string[]): Buffer {
   );
 }
 
-function injectorWith(downloader: FakeDownloader, merger: FakeMerger): InjectorImpl {
+function injectorWith(
+  downloader: FakeDownloader,
+  merger: FakeMerger
+): InjectorImpl {
   const inj = new InjectorImpl();
   inj.set('Parser', new ParserImpl());
   inj.set('Downloader', downloader);
@@ -38,9 +41,12 @@ function injectorWith(downloader: FakeDownloader, merger: FakeMerger): InjectorI
 function ffprobe(file: string): any {
   return JSON.parse(
     execFileSync('ffprobe', [
-      '-v', 'error',
-      '-show_format', '-show_streams',
-      '-of', 'json',
+      '-v',
+      'error',
+      '-show_format',
+      '-show_streams',
+      '-of',
+      'json',
       file,
     ]).toString()
   );
@@ -48,16 +54,23 @@ function ffprobe(file: string): any {
 
 describe('Wrapper — cleartext pipeline', () => {
   it('merges segments in playlist-index order despite reverse completion order', async () => {
-    const fakeDl = new FakeDownloader({
-      'rev.m3u8': { data: playlist(['s0', 's1', 's2']) },
-      s0: { data: Buffer.from('AAA'), delayMs: 40 },
-      s1: { data: Buffer.from('BBB'), delayMs: 20 },
-      s2: { data: Buffer.from('CCC'), delayMs: 5 },
-    });
+    const fakeDl = new FakeDownloader(
+      {
+        'rev.m3u8': { data: playlist(['s0', 's1', 's2']) },
+        s0: { data: Buffer.from('AAA') },
+        s1: { data: Buffer.from('BBB') },
+        s2: { data: Buffer.from('CCC') },
+      },
+      ['s2', 's1', 's0'] // segments complete in reverse playlist order
+    );
     const fakeMerger = new FakeMerger();
     const outDir = mkdtempSync(join(tmpdir(), 'sondeo-out-'));
 
-    await run(new Wrapper(outDir, injectorWith(fakeDl, fakeMerger)).save('https://x/rev.m3u8'));
+    await run(
+      new Wrapper(outDir, injectorWith(fakeDl, fakeMerger)).save(
+        'https://x/rev.m3u8'
+      )
+    );
 
     expect(fakeMerger.received).toBeDefined();
     expect(fakeMerger.received!.map((p) => basename(p))).toEqual([
@@ -69,17 +82,24 @@ describe('Wrapper — cleartext pipeline', () => {
   });
 
   it('merges in index order for shuffled completion order', async () => {
-    const fakeDl = new FakeDownloader({
-      'shuf.m3u8': { data: playlist(['a', 'b', 'c', 'd']) },
-      a: { data: Buffer.from('A'), delayMs: 15 },
-      b: { data: Buffer.from('B'), delayMs: 40 },
-      c: { data: Buffer.from('C'), delayMs: 5 },
-      d: { data: Buffer.from('D'), delayMs: 25 },
-    });
+    const fakeDl = new FakeDownloader(
+      {
+        'shuf.m3u8': { data: playlist(['a', 'b', 'c', 'd']) },
+        a: { data: Buffer.from('A') },
+        b: { data: Buffer.from('B') },
+        c: { data: Buffer.from('C') },
+        d: { data: Buffer.from('D') },
+      },
+      ['c', 'a', 'd', 'b'] // segments complete in shuffled order
+    );
     const fakeMerger = new FakeMerger();
     const outDir = mkdtempSync(join(tmpdir(), 'sondeo-out-'));
 
-    await run(new Wrapper(outDir, injectorWith(fakeDl, fakeMerger)).save('https://x/shuf.m3u8'));
+    await run(
+      new Wrapper(outDir, injectorWith(fakeDl, fakeMerger)).save(
+        'https://x/shuf.m3u8'
+      )
+    );
 
     expect(fakeMerger.received!.map((p) => basename(p))).toEqual([
       segName(0),
@@ -98,7 +118,11 @@ describe('Wrapper — cleartext pipeline', () => {
     const fakeMerger = new FakeMerger();
     const outDir = mkdtempSync(join(tmpdir(), 'sondeo-out-'));
 
-    await run(new Wrapper(outDir, injectorWith(fakeDl, fakeMerger)).save('https://x/dup.m3u8'));
+    await run(
+      new Wrapper(outDir, injectorWith(fakeDl, fakeMerger)).save(
+        'https://x/dup.m3u8'
+      )
+    );
 
     expect(fakeDl.calls.filter((c) => c === 'dup').length).toBe(3);
     expect(fakeMerger.received!.length).toBe(3);
@@ -110,40 +134,36 @@ describe('Wrapper — cleartext pipeline', () => {
     rmSync(outDir, { recursive: true, force: true });
   });
 
-  it(
-    'produces a valid mp4 from a cleartext fixture playlist',
-    async () => {
-      const m = meta();
-      const map: Record<string, FakeEntry> = {
-        'cleartext.m3u8': { data: readFx('cleartext.m3u8') },
-      };
-      for (let i = 0; i < m.segmentCount; i++) {
-        // stagger completion so order correctness is exercised end-to-end
-        map[`plain/${segName(i)}`] = {
-          data: readFx('plain', segName(i)),
-          delayMs: (m.segmentCount - i) * 5,
-        };
-      }
-      const fakeDl = new FakeDownloader(map);
-      const outDir = mkdtempSync(join(tmpdir(), 'sondeo-out-'));
-      const inj = new InjectorImpl();
-      inj.set('Parser', new ParserImpl());
-      inj.set('Downloader', fakeDl);
-      inj.set('Writer', new WriterImpl());
-      inj.set('Decryptor', new DecryptorImpl());
-      inj.set('Merger', new MergerImpl()); // real ffmpeg merge
+  it('produces a valid mp4 from a cleartext fixture playlist', async () => {
+    const m = meta();
+    const map: Record<string, FakeEntry> = {
+      'cleartext.m3u8': { data: readFx('cleartext.m3u8') },
+    };
+    const segTargets: string[] = [];
+    for (let i = 0; i < m.segmentCount; i++) {
+      const target = `plain/${segName(i)}`;
+      segTargets.push(target);
+      map[target] = { data: readFx('plain', segName(i)) };
+    }
+    // complete in reverse so ordering is exercised through the real merge
+    const fakeDl = new FakeDownloader(map, [...segTargets].reverse());
+    const outDir = mkdtempSync(join(tmpdir(), 'sondeo-out-'));
+    const inj = new InjectorImpl();
+    inj.set('Parser', new ParserImpl());
+    inj.set('Downloader', fakeDl);
+    inj.set('Writer', new WriterImpl());
+    inj.set('Decryptor', new DecryptorImpl());
+    inj.set('Merger', new MergerImpl()); // real ffmpeg merge
 
-      await run(new Wrapper(outDir, inj).save('https://x/cleartext.m3u8'));
+    await run(new Wrapper(outDir, inj).save('https://x/cleartext.m3u8'));
 
-      const outFile = join(outDir, 'cleartext.mp4');
-      expect(existsSync(outFile)).toBe(true);
-      const probe = ffprobe(outFile);
-      expect(probe.format.format_name).toContain('mp4');
-      expect(
-        Math.abs(parseFloat(probe.format.duration) - m.totalDuration)
-      ).toBeLessThan(0.5);
-      rmSync(outDir, { recursive: true, force: true });
-    },
-    20000
-  );
+    const outFile = join(outDir, 'cleartext.mp4');
+    expect(existsSync(outFile)).toBe(true);
+    const probe = ffprobe(outFile);
+    expect(probe.format.format_name).toContain('mp4');
+    expect(
+      Math.abs(parseFloat(probe.format.duration) - m.totalDuration)
+    ).toBeLessThan(0.5);
+    rmSync(outDir, { recursive: true, force: true });
+  }, 20000);
 });

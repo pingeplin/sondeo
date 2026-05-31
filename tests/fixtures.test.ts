@@ -13,9 +13,16 @@ function aesCbcDecrypt(data: Buffer, key: Buffer, iv: Buffer): Buffer {
   return Buffer.concat([d.update(data), d.final()]);
 }
 
+// Full-width 16-byte big-endian encoding, kept independent of src/iv.ts so this
+// test can still catch a drifted production helper. Uses byte arithmetic rather
+// than writeUInt32BE so it stays correct for sequence numbers above 0xFFFFFFFF.
 function ivFromSeq(n: number): Buffer {
   const iv = Buffer.alloc(16);
-  iv.writeUInt32BE(n >>> 0, 12);
+  let v = n;
+  for (let i = 15; i >= 0 && v > 0; i--) {
+    iv[i] = v % 256;
+    v = Math.floor(v / 256);
+  }
   return iv;
 }
 
