@@ -1,0 +1,19 @@
+{
+  "segmentCount": 3,
+  "durations": [
+    1.023222,
+    1.117644,
+    1.119189
+  ],
+  "totalDuration": 3.260055,
+  "key": "00112233445566778899aabbccddeeff",
+  "explicitIv": "f0e0d0c0b0a090807060504030201000",
+  "mediaSequence": 0,
+  "expectedStreams": {
+    "count": 2,
+    "codecs": [
+      "aac",
+      "h264"
+    ]
+  }
+}

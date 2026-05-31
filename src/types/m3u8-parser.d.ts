@@ -6,6 +6,7 @@ declare module 'm3u8-parser' {
   export interface Manifest {
     allowCache: boolean;
     discontinuityStarts: any[];
+    mediaSequence?: number;
     segments: Segment[];
     playlists: Playlist[];
     mediaGroups: MediaGroups;
@@ -15,7 +16,8 @@ declare module 'm3u8-parser' {
     duration: number;
     uri: string;
     timeline: number;
-    key: Key;
+    key?: Key;
+    map?: { uri: string };
   }
 
   export interface MediaGroups {
