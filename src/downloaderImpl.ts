@@ -13,7 +13,10 @@ export class DownloaderImpl implements Downloader {
         return;
       }
 
-      const host = this.url.host;
+      // Split host and port: `host` (with a port) would be DNS-resolved
+      // verbatim by https.get, so a non-default port must go in `port`.
+      const hostname = this.url.hostname;
+      const port = this.url.port || undefined;
       const basePath = this.url.pathname
         .split('/')
         .filter((e) => e)
@@ -41,7 +44,8 @@ export class DownloaderImpl implements Downloader {
         queryParts.length > 0 ? '?' + queryParts.join('?') : this.url.search;
 
       const option: RequestOptions = {
-        host,
+        hostname,
+        port,
         path: encodedPath + search,
         agent: this.agent,
       };
