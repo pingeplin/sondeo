@@ -109,7 +109,13 @@ detected and rejected (rather than mishandled), or simply out of scope:
 ```bash
 npm test           # vitest — unit + ffmpeg-backed integration tests
 npm run build      # webpack build to dist/main.js
+npm run smoke      # end-to-end: real ffmpeg-encrypted HLS over HTTPS → .mp4
 ```
+
+`npm run smoke` (`scripts/smoke.mjs`) mints a genuine AES-128 HLS stream with
+`ffmpeg`, serves it over a throwaway self-signed HTTPS server, runs the built
+CLI against it, and `ffprobe`-validates the merged `.mp4` — proving decryption
+agrees with a real encoder end-to-end.
 
 Test fixtures under `tests/fixtures/` are synthetic (minted by
 `tests/fixtures/generate.mjs`, a one-shot dev tool) and committed as static

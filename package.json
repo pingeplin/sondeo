@@ -9,7 +9,8 @@
   },
   "scripts": {
     "build": "webpack",
-    "test": "vitest run"
+    "test": "vitest run",
+    "smoke": "npm run build && node scripts/smoke.mjs"
   },
   "husky": {
     "hooks": {
