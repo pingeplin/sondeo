@@ -12,7 +12,7 @@
 //
 // Run: node scripts/smoke.mjs   (requires a prior `npm run build`)
 
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createServer } from 'node:https';
 import {
   createReadStream,
@@ -133,21 +133,42 @@ try {
   log(`serving stream over https://127.0.0.1:${port}`);
 
   // 3. Run the BUILT CLI against it (accept the self-signed cert for this run).
+  //
+  // Use async spawn, NOT spawnSync: this process is also the HTTPS origin
+  // serving the segments. spawnSync blocks this event loop until the child
+  // exits, which would freeze the server — the CLI's segment requests would
+  // never be answered and both sides would deadlock until the timeout fired.
+  // Async spawn keeps the loop free to serve while the CLI runs.
   log('running the built sondeo CLI…');
-  const cli = spawnSync(
-    process.execPath,
-    [
-      'dist/main.js',
-      '-t',
-      `https://127.0.0.1:${port}/index.m3u8`,
-      '-o',
-      outDir,
-    ],
-    {
-      env: { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' },
-      encoding: 'utf8',
-    }
-  );
+  const cli = await new Promise((resolveCli, rejectCli) => {
+    const child = spawn(
+      process.execPath,
+      [
+        'dist/main.js',
+        '-t',
+        `https://127.0.0.1:${port}/index.m3u8`,
+        '-o',
+        outDir,
+      ],
+      { env: { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' } }
+    );
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => (stdout += d.toString()));
+    child.stderr.on('data', (d) => (stderr += d.toString()));
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      rejectCli(new Error('CLI timed out (did not exit within 60s)'));
+    }, 60000);
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      rejectCli(err);
+    });
+    child.on('close', (status) => {
+      clearTimeout(timer);
+      resolveCli({ status, stdout, stderr });
+    });
+  });
   process.stdout.write(cli.stdout || '');
   if (cli.status !== 0) {
     process.stderr.write(cli.stderr || '');
