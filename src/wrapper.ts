@@ -1,99 +1,161 @@
-import { from, Observable, Subject, throwError } from 'rxjs';
+import { from, Observable, of, Subject, throwError } from 'rxjs';
+import { map, mergeMap, switchMap, toArray } from 'rxjs/operators';
+import { mkdtempSync } from 'fs';
+import { tmpdir } from 'os';
+import { join, parse as parsePath } from 'path';
 import {
-  Data,
+  Decryptor,
   Downloader,
   Injector,
+  Merger,
   Parser,
   Status,
   Writer,
 } from './interfaces/interfaces';
-import { mergeMap, switchMap } from 'rxjs/operators';
+import { ivForSegment } from './iv';
 
-const IMAGE_EXT_RE = /\.(jpe?g|png|gif|bmp|webp)/g;
+const CONCURRENCY = 5;
+
+function toBuffer(view: DataView): Buffer {
+  return Buffer.from(view.buffer, view.byteOffset, view.byteLength);
+}
+
+function segName(index: number): string {
+  return `seg${String(index).padStart(5, '0')}.ts`;
+}
+
+interface SegmentItem {
+  index: number;
+  uri: string;
+  ivWords?: number[];
+}
 
 export class Wrapper {
   private readonly outPath: string;
-  private data: Data;
-  private parser: Parser;
-  private downloader: Downloader;
-  private writer: Writer;
+  private readonly parser: Parser;
+  private readonly downloader: Downloader;
+  private readonly writer: Writer;
+  private readonly decryptor: Decryptor;
+  private readonly merger: Merger;
 
   constructor(outPath: string, injector: Injector) {
     this.outPath = outPath;
-
-    this.data = new Data();
     this.parser = injector.get('Parser');
     this.downloader = injector.get('Downloader');
     this.writer = injector.get('Writer');
+    this.decryptor = injector.get('Decryptor');
+    this.merger = injector.get('Merger');
   }
 
   save(target: string): Observable<Status> {
     const notify = new Subject<Status>();
-    let downloadedCount = 0;
+
+    if (!this.merger.ffmpegAvailable()) {
+      queueMicrotask(() =>
+        notify.error(
+          new Error(
+            "ffmpeg is required to merge segments into an .mp4. Install it (e.g. 'brew install ffmpeg') and retry."
+          )
+        )
+      );
+      return notify.asObservable();
+    }
 
     const url = new URL(target);
     this.downloader.url = url;
-    const fileName = url.pathname.split('/').slice(-1)[0];
+    const playlistName = url.pathname.split('/').slice(-1)[0];
+    const outFile = join(this.outPath, parsePath(playlistName).name + '.mp4');
+
     this.downloader
-      .download(fileName)
+      .download(playlistName)
       .pipe(
         switchMap((result) => {
-          const manifest = this.parser.parse(
-            Buffer.from(
-              result.data.buffer,
-              result.data.byteOffset,
-              result.data.byteLength
+          const manifest = this.parser.parse(toBuffer(result.data));
+          const segments = manifest.segments || [];
+
+          if (segments.some((segment) => segment.map)) {
+            return throwError(
+              new Error(
+                'fMP4 (#EXT-X-MAP) playlists are not supported in v1; decrypt and merge with ffmpeg directly.'
+              )
+            );
+          }
+          const key = segments.find((segment) => segment.key)?.key;
+          if (key && key.method !== 'AES-128') {
+            return throwError(
+              new Error(
+                `Unsupported encryption method '${key.method}'; only AES-128 is supported.`
+              )
+            );
+          }
+          if (segments.length === 0) {
+            return throwError(new Error('no segments to merge'));
+          }
+
+          const mediaSequence = manifest.mediaSequence ?? 0;
+          const tempDir = mkdtempSync(join(tmpdir(), 'sondeo-seg-'));
+          const items: SegmentItem[] = segments.map((segment, index) => ({
+            index,
+            uri: segment.uri,
+            ivWords: segment.key?.iv,
+          }));
+          let downloaded = 0;
+          notify.next({ total: items.length, downloaded });
+
+          // Fetch the key first so every segment can be decrypted on arrival.
+          const key$ = key
+            ? this.downloader
+                .download(key.uri)
+                .pipe(map((r) => toBuffer(r.data)))
+            : of<Buffer | undefined>(undefined);
+
+          return key$.pipe(
+            switchMap((keyBytes) =>
+              from(items).pipe(
+                mergeMap(
+                  (item) =>
+                    this.downloader.download(item.uri).pipe(
+                      mergeMap((segmentResult) => {
+                        let data: DataView = segmentResult.data;
+                        if (keyBytes) {
+                          const iv = ivForSegment(
+                            item.ivWords,
+                            mediaSequence,
+                            item.index
+                          );
+                          const plain = this.decryptor.decrypt(
+                            toBuffer(segmentResult.data),
+                            keyBytes,
+                            iv
+                          );
+                          data = new DataView(
+                            plain.buffer,
+                            plain.byteOffset,
+                            plain.byteLength
+                          );
+                        }
+                        const segPath = join(tempDir, segName(item.index));
+                        return this.writer.writeFile(segPath, data).pipe(
+                          map(() => {
+                            downloaded++;
+                            notify.next({ total: items.length, downloaded });
+                            return { index: item.index, path: segPath };
+                          })
+                        );
+                      })
+                    ),
+                  CONCURRENCY
+                ),
+                toArray(),
+                switchMap((written) => {
+                  const ordered = written
+                    .sort((a, b) => a.index - b.index)
+                    .map((entry) => entry.path);
+                  return this.merger.merge(ordered, outFile);
+                })
+              )
             )
           );
-
-          const fileName = result.name.split('?')[0];
-          const filePath = this.outPath + '/' + fileName;
-
-          const m3u8Str = Buffer.from(
-            result.data.buffer,
-            result.data.byteOffset,
-            result.data.byteLength
-          ).toString();
-          const rewritten = Buffer.from(m3u8Str.replace(IMAGE_EXT_RE, '.ts'));
-          this.writer.writeFile(
-            filePath,
-            new DataView(
-              rewritten.buffer,
-              rewritten.byteOffset,
-              rewritten.byteLength
-            )
-          );
-
-          if (!manifest.segments || manifest.segments.length === 0) {
-            return throwError('error');
-          }
-
-          const partsSet = new Set<string>();
-          const key = manifest.segments[0].key;
-          if (key) {
-            partsSet.add(key.uri);
-          }
-          for (const segment of manifest.segments) {
-            partsSet.add(segment.uri);
-          }
-          this.data.parts = Array.from(partsSet);
-
-          notify.next({ total: this.data.parts.length, downloaded: 0 });
-          return from(this.data.parts).pipe(
-            mergeMap((part) => this.downloader.download(part), 5)
-          );
-        }),
-        mergeMap((result) => {
-          const fileName = result.name
-            .split('?')[0]
-            .replace(IMAGE_EXT_RE, '.ts');
-          const filePath = this.outPath + '/' + fileName;
-          downloadedCount++;
-          notify.next({
-            total: this.data.parts.length,
-            downloaded: downloadedCount,
-          });
-          return this.writer.writeFile(filePath, result.data);
         })
       )
       .subscribe({

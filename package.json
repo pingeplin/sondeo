@@ -8,11 +8,13 @@
     "sondeo": "bin/sondeo"
   },
   "scripts": {
-    "build": "webpack"
+    "build": "webpack",
+    "test": "vitest run",
+    "smoke": "npm run build && node scripts/smoke.mjs"
   },
   "husky": {
     "hooks": {
-      "pre-commit": "pretty-quick --staged"
+      "pre-commit": "sh scripts/format-staged.sh"
     }
   },
   "devDependencies": {
@@ -25,6 +27,7 @@
     "terser-webpack-plugin": "^5.0.3",
     "ts-loader": "^8.0.12",
     "typescript": "^4.1.3",
+    "vitest": "^4.1.7",
     "webpack": "^5.11.0",
     "webpack-cli": "^4.2.0"
   },
